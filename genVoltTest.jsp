@@ -6,7 +6,6 @@ var fso = new ActiveXObject( "Scripting.FileSystemObject" );
 
 //Initializing configuration object
 var conf = iniConfigConstructor( homeFolder, fso );
-
 var tmpFile = conf.homeFolder + "\\tmp.bin", tmpOgFile = conf.homeFolder + "\\tmpOrg.bin";
 
 //Loading kdm model file and trying to save it as temporary binary file
@@ -19,12 +18,17 @@ var nodes = [], generators = [];
 
 var baseGensReacPow = [], baseNodesVolt = [], baseGenNodesPow = [];
 
+//Getting variables values from config file 
 var area = conf.area, voltage = conf.voltage, nodeIndex = conf.nodeIndex, nodeChar = conf.nodeChar;
 
+//Setting power flow calculation settings with settings from config file
 setPowerFlowSettings( conf );
 
+//Calculate power flow, if fails throw error 
 CPF();
 
+
+//Fill node array with valid nodes and baseNodesVolt array with voltage of that nodes
 for( var i = 1; i < Data.N_Nod; i++ ){
 
   var n = NodArray.Get( i );
@@ -37,6 +41,8 @@ for( var i = 1; i < Data.N_Nod; i++ ){
   }
 }
 
+//Fill generators array with valid generators and it's connected node. 
+//Also fill baseGensReacPow with that generators reactive power and baseGenNodesPow with connected nodes power
 for( var i = 1; i < Data.N_Gen; i++  ){
 
   var g = GenArray.Get( i );
@@ -54,10 +60,11 @@ for( var i = 1; i < Data.N_Gen; i++  ){
  
 }
 
+//Create result files and folder with settings from a config file
 var file1 = createFile( "G", conf, fso );
 var file2 = createFile( "N", conf, fso );
 
-//Write headers to files
+//Write headers and base values for each generator/node to coresponding file 
 file1.Write( "Generator;Old U_G;New U_G;" );
 file2.Write( "Generator;Old U_G;New U_G;" );
 
@@ -83,32 +90,41 @@ for( i in nodes ){
 
 file2.WriteLine( "\n" + temp );
 
-SaveTempBIN( tmpFile )
+//Trying to save file before changes on transformators and  connected nodes
+if( SaveTempBIN( tmpFile ) < 1 ) errorThrower( "Unable to create temporary file", "Unable to create temporary file, check if you are able to create files in homeFolder location" );
 
 for( i in generators ){
   
   var g = generators[ i ][ 0 ], n = generators[ i ][ 1 ];
-    
+
+  //Check if generator has block transformer
   if( g.TrfName != "" ){
 
+    //Find transformer and change it's type to 11 ( without regulation )
     var t = TrfArray.Find( g.TrfName );
     t.Typ = 11;
-
+    
+    //Check if transformer name's ends with A, indicates that there are more than 1 block transformers connected to generator
     if( g.TrfName.charAt( g.TrfName.length - 1 ) == 'A' ){
-
-      var l = 'B';
-
-      while( true ){
       
+      var l = 'B';
+      //Transformer name without last char
+      var tName = g.TrfName.slice(0, -1);
+      
+      //As long as there are transformers with same name ending with next letter, then change it's type to 11 ( without regulation )
+      while( true ){
+        
+        //Try to assign a transformer to variable and transformer type to 11 ( without regulation )
         try{
           
-          t = TrfArray.Find( tName + l );
-          
+          t = TrfArray.Find( tName + l ); 
           t.Typ = 11;
         }
         
+        //If t is null then exit while loop
         catch( e ){ break; }
         
+        //changes l to next letter by adding 1 to it's char code
         l = String.fromCharCode ( l.charCodeAt( 0 ) + 1 );
       }
 
@@ -116,28 +132,35 @@ for( i in generators ){
 
   }
 
-  var value = 1
-  
+  //get set value from config file and add it to node's voltage
+  var value = conf.value;
   n.Vs += value;
 
+  //Calculate power flow, if fails throw error 
   CPF();
   
+  //Write generator's name, it's base connected node power and new connected node power
   file1.Write( g.Name + ";" + roundTo( baseGenNodesPow[ i ], 2 ) + ";" + roundTo( n.Vs, 2 ) + ";" );
 
+  //Write for each generator it's new reactive power
   for( j in generators ){
 
     file1.Write( roundTo( generators[ j ][ 0 ].Qg, 2 ) + ";" );
   }
   
+  //Add end line character to file
   file1.WriteLine("");
 
+  //Write generator's name, it's base connected node power and new connected node power
   file2.Write( g.Name + ";" + roundTo( baseGenNodesPow[ i ], 2 ) + ";" + roundTo( n.Vs, 2 ) + ";" );
   
+  //Write for each node it's new voltage
   for( j in nodes ){
 
     file2.Write( roundTo( nodes[ j ].Vi, 2 ) + ";" );
   }
 
+  //Add end line character to file
   file2.WriteLine("");
 
   //Load model without any changes to transformators
@@ -187,11 +210,13 @@ function CPF(){
   if( CalcLF() != 1 ) errorThrower( "Power Flow calculation failed", -1 );
 }
 
-//Function takes conf object and depending on it's config creates folder in specified location. Throws error if conf object is null and when folder can't be created
+//Function takes conf object and depending on it's config creates folder in specified location. 
+//Throws error if conf object is null and when folder can't be created
 function createFolder( conf, fso ){
 
   var message = "Unable to load configuration";
-  if( !conf ) errorThrower( message, message);
+  
+  if( !conf ) errorThrower( message, message );
   
   var folder = conf.folderName;
   var folderPath = conf.homeFolder + "\\" + folder;
@@ -199,7 +224,9 @@ function createFolder( conf, fso ){
   if( !fso.FolderExists( folderPath ) ){
     
     try{ fso.CreateFolder( folderPath ); }
+    
     catch( err ){ 
+    
       errorThrower( "Unable to create folder", "Unable to create folder, check if you are able to create folders in that location" );
     }
 
@@ -210,11 +237,13 @@ function createFolder( conf, fso ){
   return folder;
 }
 
-//Function takes conf object and depending on it's config creates file in specified location. Throws error if conf object is null and when file can't be created
+//Function takes conf object and depending on it's config creates file in specified location.
+//Also can create folder where results are located depending on configuration file 
+//Throws error if conf object is null and when file can't be created
 function createFile( fileNameEnd, conf, fso ){
   
   var message = "Unable to load configuration";
-  if( !conf ) errorThrower( message, message);
+  if( !conf ) errorThrower( message, message );
 
   var file = null;
   
@@ -223,7 +252,9 @@ function createFile( fileNameEnd, conf, fso ){
   var fileLocation = conf.homeFolder + "\\" + folder + timeStamp + conf.fileName + fileNameEnd + ".csv";
   
   try{ file = fso.CreateTextFile( fileLocation ); }
+  
   catch( err ){ 
+    
     errorThrower( "File arleady exists or unable to create it", "File arleady exists or unable to create it, check if you are able to create files in that location" );
   }
 
@@ -233,6 +264,7 @@ function createFile( fileNameEnd, conf, fso ){
 //Function uses built in .ini function to get it's settings from config file.
 //Returns conf object with settings taken from file. If file isn't found error is throwed instead.
 function iniConfigConstructor( iniPath, fso ){
+  
   var confFile = iniPath + "\\config.ini";
 
   if( !fso.FileExists( confFile ) ) errorThrower( "config.ini file not found", "Config file error, make sure your file location has config.ini file" );
@@ -256,6 +288,7 @@ function iniConfigConstructor( iniPath, fso ){
     voltage: ini.GetInt( "variable", "voltage", 0 ),
     nodeIndex: ini.GetInt( "variable", "nodeIndex", 0 ),
     nodeChar: ini.GetString( "variable", "nodeChar", 'Y' ),
+    value: ini.GetInt( "variable", "value", 1 ),
 
     //Folder
     createResultsFolder: ini.GetBool( "folder", "createResultsFolder", 0 ),
@@ -285,6 +318,7 @@ function iniConfigConstructor( iniPath, fso ){
   ini.WriteInt( "variable", "voltage", conf.voltage );
   ini.WriteInt( "variable", "nodeIndex", conf.nodeIndex );
   ini.WriteString( "variable", "nodeChar", conf.nodeChar );
+  ini.WriteInt( "variable", "value", conf.value );
 
   //Folder
   ini.WriteBool( "folder", "createResultsFolder", conf.createResultsFolder );
@@ -293,7 +327,7 @@ function iniConfigConstructor( iniPath, fso ){
   //File
   ini.WriteBool( "file", "addTimestampToFile", conf.addTimestampToFile );
   ini.WriteString( "file", "fileName", conf.fileName );
-  ini.WriteInt( "file", "resultsRoundingPrecision", conf.resultsRoundingPrecision );
+  ini.WriteInt( "file", "roundingPrecision", conf.roundingPrecision );
     
   //Power Flow
   ini.WriteInt( "power flow", "maxIterations", conf.maxIterations );
@@ -311,8 +345,7 @@ function getCurrentDate(){
   var current = new Date();
   
   var formatedDateArray = [ ( '0' + ( current.getMonth() + 1 ) ).slice( -2 ), ( '0' + current.getDate() ).slice( -2 ), 
-  ( '0' + current.getHours() ).slice( -2 ), ( '0' + current.getMinutes() ).slice( -2 ), 
-  ( '0' + current.getSeconds() ).slice( -2 ) ];
+  ( '0' + current.getHours() ).slice( -2 ), ( '0' + current.getMinutes() ).slice( -2 ), ( '0' + current.getSeconds() ).slice( -2 ) ];
   
   return current.getFullYear() + "-" + formatedDateArray[ 0 ] + "-" + formatedDateArray[ 1 ] + "--" + formatedDateArray[ 2 ] + "-" + formatedDateArray[ 3 ] + "-" + formatedDateArray[ 4 ];
 }
