@@ -27,7 +27,6 @@ setPowerFlowSettings( conf );
 //Calculate power flow, if fails throw error 
 CPF();
 
-
 //Fill node array with valid nodes and baseNodesVolt array with voltage of that nodes
 for( var i = 1; i < Data.N_Nod; i++ ){
 
@@ -43,7 +42,7 @@ for( var i = 1; i < Data.N_Nod; i++ ){
 
 //Fill generators array with valid generators and it's connected node. 
 //Also fill baseGensReacPow with that generators reactive power and baseGenNodesPow with connected nodes power
-for( var i = 1; i < Data.N_Gen; i++  ){
+for( var i = 1; i < Data.N_Gen; i++ ){
 
   var g = GenArray.Get( i );
 
@@ -96,7 +95,7 @@ if( SaveTempBIN( tmpFile ) < 1 ) errorThrower( "Unable to create temporary file"
 for( i in generators ){
   
   var g = generators[ i ][ 0 ], n = generators[ i ][ 1 ];
-
+  
   //Check if generator has block transformer
   if( g.TrfName != "" ){
 
@@ -136,9 +135,9 @@ for( i in generators ){
   var value = conf.value;
   n.Vs += value;
 
-  //Calculate power flow, if fails throw error 
-  CPF();
-  
+  //Calculate power flow, if fails try to load original model and throw error 
+  if( CalcLF() != 1 ) saveErrorThrower( "Power Flow calculation failed", -1, tmpOgFile );
+
   //Write generator's name, it's base connected node power and new connected node power
   file1.Write( g.Name + ";" + roundTo( baseGenNodesPow[ i ], 2 ) + ";" + roundTo( n.Vs, 2 ) + ";" );
 
@@ -202,6 +201,16 @@ function errorThrower( message, error ){
   
   MsgBox( message, 16, "Error" );
   throw error;
+}
+
+//Function adds loading bin file before throwing an error
+function saveErrorThrower( message, error, binPath ){
+
+  try{ ReadTempBIN( binPath ); }
+  
+  catch( e ){ MsgBox( "Couldn't load original model", 16, "Error" ) }
+
+  errorThrower( message, error );
 }
 
 //Calls built in power flow calculate function, throws error when it fails
