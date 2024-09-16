@@ -1,3 +1,16 @@
+//TODO list
+/*  
+  
+  configuraton file with file reading support  
+  
+  convert input file array to plans objects
+  
+  search function, that searches through generators, transformers and nodes?
+
+  change output files to log change of transformers and generators and nodes
+
+*/
+
 //Location of folder where config file is located
 var homeFolder = "C:\\Users\\lukas\\Documents\\Github\\Plans_GeneratorsVoltageChangeTest_Macro";
 
@@ -27,6 +40,16 @@ setPowerFlowSettings( conf );
 //Calculate power flow, if fails throw error 
 CPF();
 
+
+//
+//TODO: convert data from input file to array with objects
+//
+
+//Try to read file from location specified in configuration file, then make array from file and close the file
+var inputFile = readFile( config, fso );
+var inputArray = getInputArray( inputFile );
+inputFile.close();
+/*
 //Fill node array with valid nodes and baseNodesVolt array with voltage of that nodes
 for( var i = 1; i < Data.N_Nod; i++ ){
 
@@ -58,7 +81,7 @@ for( var i = 1; i < Data.N_Gen; i++ ){
   }
  
 }
-
+*/
 //Create result files and folder with settings from a config file
 var file1 = createFile( "G", conf, fso );
 var file2 = createFile( "N", conf, fso );
@@ -196,49 +219,43 @@ function setPowerFlowSettings( config ){
   Calc.Met = config.method;
 }
 
-//Basic error thrower
-function errorThrower( message, error ){
-  
-  MsgBox( message, 16, "Error" );
-  throw error;
-}
-
 //Function adds loading bin file before throwing an error
 function saveErrorThrower( message, error, binPath ){
 
   try{ ReadTempBIN( binPath ); }
   
-  catch( e ){ MsgBox( "Couldn't load original model", 16, "Error" ) }
+  catch( e ){ MsgBox( "Couldn't load original model", 16 ) }
 
   errorThrower( message, error );
 }
 
-//Calls built in power flow calculate function, throws error when it fails
-function CPF(){
-
-  if( CalcLF() != 1 ) errorThrower( "Power Flow calculation failed", -1 );
+//Basic error thrower with error message window
+function errorThrower( message ){
+  
+  MsgBox( message, 16, "Error" );
+  throw message;
 }
 
-//Function takes conf object and depending on it's config creates folder in specified location. 
-//Throws error if conf object is null and when folder can't be created
-function createFolder( conf, fso ){
+//Calls built in power flow calculate function, throws error if it fails
+function CPF(){
 
-  var message = "Unable to load configuration";
+  if( CalcLF() != 1 ) errorThrower( "Power Flow calculation failed" );
+}
+
+//Function takes config object and depending on it's config creates folder in specified location. 
+//Throws error if config object is null and when folder can't be created
+function createFolder( config, fso ){
   
-  if( !conf ) errorThrower( message, message );
+  if( !config ) errorThrower( "Unable to load configuration" );
   
-  var folder = conf.folderName;
-  var folderPath = conf.homeFolder + "\\" + folder;
+  var folder = config.folderName;
+  var folderPath = config.homeFolder + folder;
   
   if( !fso.FolderExists( folderPath ) ){
     
     try{ fso.CreateFolder( folderPath ); }
     
-    catch( err ){ 
-    
-      errorThrower( "Unable to create folder", "Unable to create folder, check if you are able to create folders in that location" );
-    }
-
+    catch( err ){ errorThrower( "Unable to create folder" ); }
   }
   
   folder += "\\";
@@ -246,29 +263,122 @@ function createFolder( conf, fso ){
   return folder;
 }
 
-//Function takes conf object and depending on it's config creates file in specified location.
+//Function takes config object and depending on it's config creates file in specified location.
 //Also can create folder where results are located depending on configuration file 
-//Throws error if conf object is null and when file can't be created
-function createFile( fileNameEnd, conf, fso ){
-  
-  var message = "Unable to load configuration";
-  if( !conf ) errorThrower( message, message );
+//Throws error if config object is null and when file can't be created
+function createFile( config, fso ){
+ 
+  if( !config ) errorThrower( "Unable to load configuration" );
 
   var file = null;
   
-  var folder = ( conf.createResultsFolder == 1 ) ? createFolder( conf, fso ) : "";
-  var timeStamp = ( conf.addTimestampToFile == 1 ) ? getCurrentDate() + "--" : "";
-  var fileLocation = conf.homeFolder + "\\" + folder + timeStamp + conf.fileName + fileNameEnd + ".csv";
+  var folder = ( config.createResultsFolder == 1 ) ? createFolder( config, fso ) : "";
+  var timeStamp = ( config.addTimestampToFile == 1 ) ? getCurrentDate() + "--" : "";
+  var fileLocation = config.homeFolder + folder + timeStamp + config.resultFileName + ".txt";
   
   try{ file = fso.CreateTextFile( fileLocation ); }
   
-  catch( err ){ 
-    
-    errorThrower( "File arleady exists or unable to create it", "File arleady exists or unable to create it, check if you are able to create files in that location" );
-  }
+  catch( err ){ errorThrower( "File already exists or unable to create it" ); }
 
   return file;
 } 
+
+//Function takes config object and depending on it reads file from specified location.
+//Throws error if config object is null or when file can't be read 
+function readFile( config, fso ){
+
+  if( !config ) errorThrower( "Unable to load configuration" );
+
+  var file = null;
+
+  var fileLocation = config.inputFileLocation + config.inputFileName + "." + config.inputFileFormat;
+  
+  try{ file = fso.OpenTextFile( fileLocation, 1, false, 0 ); }
+
+  catch( err ){ errorThrower( "Unable to find or open file" ); }
+
+  return file;
+}
+
+//
+//TODO update old config file with the one from arst 
+//
+
+/*
+
+//Function uses built in .ini function to get it's settings from config file.
+//Returns conf object with settings taken from file. If file isn't found error is throwed instead.
+function iniConfigConstructor( iniPath, fso ){
+  
+  var configFile = iniPath + "\\config.ini";
+
+  if( !fso.FileExists( configFile ) ) errorThrower( "config.ini file not found" );
+
+  //Initializing plans built in ini manager
+  var ini = CreateIniObject();
+  ini.Open( configFile );
+
+  var hFolder = ini.GetString( "main", "homeFolder", Main.WorkDir );
+  
+  //Declaring conf object and trying to fill it with config.ini configuration
+  var conf = {
+  
+    //Main
+    homeFolder: hFolder,
+    modelName: ini.GetString( "main", "modelName", "model" ),
+    modelPath: ini.GetString( "main", "modelPath", hFolder ),  
+    safeMode: ini.GetBool( "main", "safeMode", 1 ),
+
+    //Folder
+    createResultsFolder: ini.GetBool( "folder", "createResultsFolder", 0 ),
+    folderName: ini.GetString( "folder", "folderName", "folder" ),
+    
+    //Files
+    addTimestampToFile: ini.GetBool( "files", "addTimestampToFile", 1 ),
+    inputFileLocation: ini.GetString( "files", "inputFileLocation", hFolder ),
+    inputFileName: ini.GetString( "files", "inputFileName", "input" ),
+    inputFileFormat: ini.GetString( "files", "inputFileFormat", "txt" ),
+    resultFileName: ini.GetString( "files", "rsultFileName", "log" ),
+    roundingPrecision: ini.GetInt( "files", "roundingPrecision", 2 ),
+    
+    //Power Flow
+    maxIterations: ini.GetInt( "power flow", "maxIterations", 300 ),
+    startingPrecision: ini.GetDouble( "power flow", "startingPrecision", 10.00 ),
+    precision: ini.GetDouble( "power flow", "precision", 1.00 ),
+    method: ini.GetInt( "power flow", "method", 1 )
+  };
+  
+  //Overwriting config.ini file
+  //Main
+  ini.WriteString( "main", "homeFolder", conf.homeFolder );
+  ini.WriteString( "main", "modelName", conf.modelName );
+  ini.WriteString( "main", "modelPath", conf.modelPath );
+  ini.WriteBool( "main", "safeMode", conf.safeMode );
+  
+  //Folder
+  ini.WriteBool( "folder", "createResultsFolder", conf.createResultsFolder );
+  ini.WriteString( "folder", "folderName", conf.folderName );
+    
+  //Files
+  ini.WriteBool( "files", "addTimestampToFile", conf.addTimestampToFile );
+  ini.WriteString( "files", "inputFileLocation", conf.inputFileLocation );
+  ini.WriteString( "files", "inputFileName", conf.inputFileName );
+  ini.WriteString( "files", "inputFileFormat", conf.inputFileFormat );
+  ini.WriteString( "files", "resultFileName", conf.resultFileName );
+  ini.WriteInt( "file", "roundingPrecision", conf.roundingPrecision );
+    
+  //Power Flow
+  ini.WriteInt( "power flow", "maxIterations", conf.maxIterations );
+  ini.WriteDouble( "power flow", "startingPrecision", conf.startingPrecision );
+  ini.WriteDouble( "power flow", "precision", conf.precision );
+  ini.WriteInt( "power flow", "method", conf.method );
+ 
+  return conf;
+}
+
+
+
+*/
 
 //Function uses built in .ini function to get it's settings from config file.
 //Returns conf object with settings taken from file. If file isn't found error is throwed instead.
@@ -347,7 +457,31 @@ function iniConfigConstructor( iniPath, fso ){
  
   return conf;
 }
- 
+
+//Function gets file and takes each line into a array and after finding whiteline pushes array into other array
+function getInputArray( file ){
+
+  var array = [];
+
+  while(!file.AtEndOfStream){
+
+    var tmp = [], line = file.ReadLine();
+      
+    while( line != "" ){
+     
+      tmp.push( line.replace(/(^\s+|\s+$)/g, '') );
+    
+      if( !file.AtEndOfStream ) line = file.ReadLine();
+      
+      else break; 
+    }
+    
+    array.push( tmp );
+  }
+
+  return array;
+}
+
 //Function takes current date and returns it in file safe format  
 function getCurrentDate(){
   
