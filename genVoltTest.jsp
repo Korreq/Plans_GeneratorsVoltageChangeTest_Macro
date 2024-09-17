@@ -1,28 +1,28 @@
 //TODO list
 /*  
   
-  configuraton file with file reading support  
+  X configuraton file with file reading support  
   
-  convert input file array to plans objects
+  X convert input file array to plans objects
   
   search function, that searches through generators, transformers and nodes?
 
-  change output files to log change of transformers and generators and nodes
+  change output files to log change of transformers, generators and nodes
 
 */
 
 //Location of folder where config file is located
-var homeFolder = "C:\\Users\\lukas\\Documents\\Github\\Plans_GeneratorsVoltageChangeTest_Macro";
+var homeFolder = "C:\\Users\\lukas\\Documents\\Github\\Plans_GeneratorsVoltageChangeTest_Macro\\files";
 
 //Creating file operation object
 var fso = new ActiveXObject( "Scripting.FileSystemObject" );
 
 //Initializing configuration object
-var conf = iniConfigConstructor( homeFolder, fso );
-var tmpFile = conf.homeFolder + "\\tmp.bin", tmpOgFile = conf.homeFolder + "\\tmpOrg.bin";
+var config = iniConfigConstructor( homeFolder, fso );
+var tmpFile = config.homeFolder + "\\tmp.bin", tmpOgFile = config.homeFolder + "\\tmpOrg.bin";
 
 //Loading kdm model file and trying to save it as temporary binary file
-ReadDataKDM( conf.modelPath + "\\" + conf.modelName + ".kdm" );
+ReadDataKDM( config.modelPath + "\\" + config.modelName + ".kdm" );
 if( SaveTempBIN( tmpOgFile ) < 1 ) errorThrower( "Unable to create temporary file", "Unable to create temporary file, check if you are able to create files in homeFolder location" );
 
 var time = getTime();
@@ -32,10 +32,10 @@ var nodes = [], generators = [];
 var baseGensReacPow = [], baseNodesVolt = [], baseGenNodesPow = [];
 
 //Getting variables values from config file 
-var area = conf.area, voltage = conf.voltage, nodeIndex = conf.nodeIndex, nodeChar = conf.nodeChar;
+var area = config.areaId, voltage = config.minRatedVoltage, nodeIndex = config.nodeCharIndex, nodeChar = config.nodeChar;
 
 //Setting power flow calculation settings with settings from config file
-setPowerFlowSettings( conf );
+setPowerFlowSettings( config );
 
 //Calculate power flow, if fails throw error 
 CPF();
@@ -49,29 +49,58 @@ CPF();
 var inputFile = readFile( config, fso );
 var inputArray = getInputArray( inputFile );
 inputFile.close();
-/*
+
+var contains = null;
+
 //Fill node array with valid nodes and baseNodesVolt array with voltage of that nodes
 for( var i = 1; i < Data.N_Nod; i++ ){
 
+  contains = false;
+
   var n = NodArray.Get( i );
 
-  if( n.Area === area && n.St > 0 && n.Name.charAt( nodeIndex ) != nodeChar && n.Vn >= voltage ){ 
+  for( var j in inputArray ){
+
+    if( stringContainsWord( n.Name, inputArray[ j ] ) ){
+      
+      contains = true;
+      
+      break;
+    }
+
+  }
+
+  if( n.Area === area && n.St > 0 && n.Name.charAt( nodeIndex ) != nodeChar && n.Vn >= voltage && contains ){ 
     
     nodes.push( n );
     
     baseNodesVolt.push( n.Vi );
   }
+
 }
 
 //Fill generators array with valid generators and it's connected node. 
 //Also fill baseGensReacPow with that generators reactive power and baseGenNodesPow with connected nodes power
 for( var i = 1; i < Data.N_Gen; i++ ){
 
+  contains = false;
+
   var g = GenArray.Get( i );
 
   var n = NodArray.Get( g.NrNod );
 
-  if( g.Qmin !== g.Qmax && g.St > 0 && n.Area === area && n.Name.charAt( nodeIndex ) == nodeChar ){
+  for( var j in inputArray ){
+
+    if( stringContainsWord( n.Name, inputArray[ j ] ) ){
+      
+      contains = true;
+      
+      break;
+    }
+
+  }
+ 
+  if( g.Qmin !== g.Qmax && g.St > 0 && n.Area === area && n.Name.charAt( nodeIndex ) == nodeChar && contains ){
 
     generators.push( [ g, n ] );
 
@@ -79,12 +108,38 @@ for( var i = 1; i < Data.N_Gen; i++ ){
 
     baseGenNodesPow.push( n.Vs );
   }
- 
+   
 }
-*/
+
+for( i in nodes ){
+
+  var n = nodes[ i ];
+
+  for( var j = 1; j < Data.N_Trf; j++ ){
+
+    var t = TrfArray.Get( j );
+    var b = BraArray.Find( t.Name );
+      
+    if( ( n.Name === t.EndName || n.Name === t.BegName ) && !elementInArrayByName( generators, t.Name )  ){
+
+      generators.push( [ t, n ] );
+      
+      baseGenNodesPow.push( n.Vs );
+    
+      cprintf( b.Name + ", end: " + b.Qend + ", beg: " + b.Qbeg );
+        
+      if( n.Name === t.EndName ) baseGensReacPow.push( b.Qend );
+      else baseGensReacPow.push( b.Qbeg );
+      
+    }
+
+  }
+
+}
+
 //Create result files and folder with settings from a config file
-var file1 = createFile( "G", conf, fso );
-var file2 = createFile( "N", conf, fso );
+var file1 = createFile( "G", config, fso );
+var file2 = createFile( "N", config, fso );
 
 //Write headers and base values for each generator/node to coresponding file 
 file1.Write( "Generator;Old U_G;New U_G;" );
@@ -120,7 +175,7 @@ for( i in generators ){
   var g = generators[ i ][ 0 ], n = generators[ i ][ 1 ];
   
   //Check if generator has block transformer
-  if( g.TrfName != "" ){
+  if( g.TrfName != "" && g.BegName == "" ){
 
     //Find transformer and change it's type to 11 ( without regulation )
     var t = TrfArray.Find( g.TrfName );
@@ -155,7 +210,7 @@ for( i in generators ){
   }
 
   //get set value from config file and add it to node's voltage
-  var value = conf.value;
+  var value = config.changeValue;
   n.Vs += value;
 
   //Calculate power flow, if fails try to load original model and throw error 
@@ -167,6 +222,13 @@ for( i in generators ){
   //Write for each generator it's new reactive power
   for( j in generators ){
 
+//
+// TODO write transformers reactive power
+//    
+  
+    //var react = ( generators[ j ][ 0 ].begName != "" ) 
+  
+  
     file1.Write( roundTo( generators[ j ][ 0 ].Qg, 2 ) + ";" );
   }
   
@@ -215,7 +277,7 @@ function setPowerFlowSettings( config ){
   Calc.Itmax = config.maxIterations;
   Calc.EPS10 = config.startingPrecision;
   Calc.Eps = config.precision;
-  Calc.EpsUg = config.uzGIterationPrecision;
+  Calc.EpsUg = config.uzgIterationPrecision;
   Calc.Met = config.method;
 }
 
@@ -242,6 +304,34 @@ function CPF(){
   if( CalcLF() != 1 ) errorThrower( "Power Flow calculation failed" );
 }
 
+function stringContainsWord( string, word ){
+  
+  var j = 0;
+
+  for( var i = 0; i < string.length; i++ ){
+  
+    j = ( string.charAt( i ) === word.charAt( j ) ) ? j + 1 : 0;
+  
+    if( j === word.length ) return true;
+  }
+  
+  return false;
+}
+
+function elementInArrayByName( array, elementName ){
+
+  var e = null;
+
+  for( i in array ){
+  
+    e = array[ i ];
+    
+    if(e.Name === elementName) return true;
+  }
+
+  return false;
+}
+
 //Function takes config object and depending on it's config creates folder in specified location. 
 //Throws error if config object is null and when folder can't be created
 function createFolder( config, fso ){
@@ -266,15 +356,15 @@ function createFolder( config, fso ){
 //Function takes config object and depending on it's config creates file in specified location.
 //Also can create folder where results are located depending on configuration file 
 //Throws error if config object is null and when file can't be created
-function createFile( config, fso ){
+function createFile( name, config, fso ){
  
   if( !config ) errorThrower( "Unable to load configuration" );
 
   var file = null;
   
   var folder = ( config.createResultsFolder == 1 ) ? createFolder( config, fso ) : "";
-  var timeStamp = ( config.addTimestampToFile == 1 ) ? getCurrentDate() + "--" : "";
-  var fileLocation = config.homeFolder + folder + timeStamp + config.resultFileName + ".txt";
+  var timeStamp = ( config.addTimestampToResultsFiles == 1 ) ? getCurrentDate() + "--" : "";
+  var fileLocation = config.homeFolder + folder + timeStamp + config.resultsFilesName + "--" + name + ".csv";
   
   try{ file = fso.CreateTextFile( fileLocation ); }
   
@@ -300,12 +390,6 @@ function readFile( config, fso ){
   return file;
 }
 
-//
-//TODO update old config file with the one from arst 
-//
-
-/*
-
 //Function uses built in .ini function to get it's settings from config file.
 //Returns conf object with settings taken from file. If file isn't found error is throwed instead.
 function iniConfigConstructor( iniPath, fso ){
@@ -327,24 +411,31 @@ function iniConfigConstructor( iniPath, fso ){
     homeFolder: hFolder,
     modelName: ini.GetString( "main", "modelName", "model" ),
     modelPath: ini.GetString( "main", "modelPath", hFolder ),  
-    safeMode: ini.GetBool( "main", "safeMode", 1 ),
+   
+    //Variable
+    areaId: ini.GetInt( "variable", "areaId", 1 ),
+    minRatedVoltage: ini.GetInt( "variable", "minRatedVoltage", 0 ),
+    nodeCharIndex: ini.GetInt( "variable", "nodeCharIndex", 0 ),
+    nodeChar: ini.GetString( "variable", "nodeChar", 'Y' ),
+    changeValue: ini.GetInt( "variable", "changeValue", 1 ),
 
     //Folder
     createResultsFolder: ini.GetBool( "folder", "createResultsFolder", 0 ),
     folderName: ini.GetString( "folder", "folderName", "folder" ),
     
     //Files
-    addTimestampToFile: ini.GetBool( "files", "addTimestampToFile", 1 ),
     inputFileLocation: ini.GetString( "files", "inputFileLocation", hFolder ),
     inputFileName: ini.GetString( "files", "inputFileName", "input" ),
     inputFileFormat: ini.GetString( "files", "inputFileFormat", "txt" ),
-    resultFileName: ini.GetString( "files", "rsultFileName", "log" ),
+    addTimestampToResultsFiles: ini.GetBool( "files", "addTimestampToResultsFiles", 1 ),
+    resultsFilesName: ini.GetString( "files", "resultsFilesName", "result" ),
     roundingPrecision: ini.GetInt( "files", "roundingPrecision", 2 ),
     
     //Power Flow
     maxIterations: ini.GetInt( "power flow", "maxIterations", 300 ),
     startingPrecision: ini.GetDouble( "power flow", "startingPrecision", 10.00 ),
     precision: ini.GetDouble( "power flow", "precision", 1.00 ),
+    uzgIterationPrecision: ini.GetDouble( "power flow", "uzgIterationPrecision", 0.001 ),
     method: ini.GetInt( "power flow", "method", 1 )
   };
   
@@ -353,106 +444,31 @@ function iniConfigConstructor( iniPath, fso ){
   ini.WriteString( "main", "homeFolder", conf.homeFolder );
   ini.WriteString( "main", "modelName", conf.modelName );
   ini.WriteString( "main", "modelPath", conf.modelPath );
-  ini.WriteBool( "main", "safeMode", conf.safeMode );
   
+  //Variable
+  ini.WriteInt( "variable", "areaId", conf.areaId );
+  ini.WriteInt( "variable", "minRatedVoltage", conf.minRatedVoltage );
+  ini.WriteInt( "variable", "nodeCharIndex", conf.nodeCharIndex );
+  ini.WriteString( "variable", "nodeChar", conf.nodeChar );
+  ini.WriteInt( "variable", "changeValue", conf.changeValue );
+
   //Folder
   ini.WriteBool( "folder", "createResultsFolder", conf.createResultsFolder );
   ini.WriteString( "folder", "folderName", conf.folderName );
     
   //Files
-  ini.WriteBool( "files", "addTimestampToFile", conf.addTimestampToFile );
   ini.WriteString( "files", "inputFileLocation", conf.inputFileLocation );
   ini.WriteString( "files", "inputFileName", conf.inputFileName );
   ini.WriteString( "files", "inputFileFormat", conf.inputFileFormat );
-  ini.WriteString( "files", "resultFileName", conf.resultFileName );
-  ini.WriteInt( "file", "roundingPrecision", conf.roundingPrecision );
+  ini.WriteBool( "files", "addTimestampToResultsFiles", conf.addTimestampToResultsFiles );
+  ini.WriteString( "files", "resultsFilesName", conf.resultsFilesName );
+  ini.WriteInt( "files", "roundingPrecision", conf.roundingPrecision );
     
   //Power Flow
   ini.WriteInt( "power flow", "maxIterations", conf.maxIterations );
   ini.WriteDouble( "power flow", "startingPrecision", conf.startingPrecision );
   ini.WriteDouble( "power flow", "precision", conf.precision );
-  ini.WriteInt( "power flow", "method", conf.method );
- 
-  return conf;
-}
-
-
-
-*/
-
-//Function uses built in .ini function to get it's settings from config file.
-//Returns conf object with settings taken from file. If file isn't found error is throwed instead.
-function iniConfigConstructor( iniPath, fso ){
-  
-  var confFile = iniPath + "\\config.ini";
-
-  if( !fso.FileExists( confFile ) ) errorThrower( "config.ini file not found", "Config file error, make sure your file location has config.ini file" );
-
-  //Initializing plans built in ini manager
-  var ini = CreateIniObject();
-  ini.Open( confFile );
-
-  var hFolder = ini.GetString( "main", "homeFolder", Main.WorkDir );
-  
-  //Declaring conf object and trying to fill it with config.ini configuration
-  var conf = {
-  
-    //Main
-    homeFolder: hFolder,
-    modelName: ini.GetString( "main", "modelName", "model" ),
-    modelPath: ini.GetString( "main", "modelPath", hFolder ),  
-    
-    //Variable
-    area: ini.GetInt( "variable", "area", 1 ),
-    voltage: ini.GetInt( "variable", "voltage", 0 ),
-    nodeIndex: ini.GetInt( "variable", "nodeIndex", 0 ),
-    nodeChar: ini.GetString( "variable", "nodeChar", 'Y' ),
-    value: ini.GetInt( "variable", "value", 1 ),
-
-    //Folder
-    createResultsFolder: ini.GetBool( "folder", "createResultsFolder", 0 ),
-    folderName: ini.GetString( "folder", "folderName", "folder" ),
-    
-    //File
-    addTimestampToFile: ini.GetBool( "file", "addTimestampToFile", 1 ),
-    fileName: ini.GetString( "file", "fileName", "result" ),
-    roundingPrecision: ini.GetInt( "file", "roundingPrecision", 2 ),
-    
-    //Power Flow
-    maxIterations: ini.GetInt( "power flow", "maxIterations", 300 ),
-    startingPrecision: ini.GetDouble( "power flow", "startingPrecision", 10.00 ),
-    precision: ini.GetDouble( "power flow", "precision", 1.00 ),
-    uzGIterationPrecision: ini.GetDouble( "power flow", "uzGIterationPrecision", 0.001 ),
-    method: ini.GetInt( "power flow", "method", 1 )
-  };
-  
-  //Overwriting config.ini file
-  //Main
-  ini.WriteString( "main", "homeFolder", conf.homeFolder );
-  ini.WriteString( "main", "modelName", conf.modelName );
-  ini.WriteString( "main", "modelPath", conf.modelPath );
-
-  //Variable
-  ini.WriteInt( "variable", "area", conf.area );
-  ini.WriteInt( "variable", "voltage", conf.voltage );
-  ini.WriteInt( "variable", "nodeIndex", conf.nodeIndex );
-  ini.WriteString( "variable", "nodeChar", conf.nodeChar );
-  ini.WriteInt( "variable", "value", conf.value );
-
-  //Folder
-  ini.WriteBool( "folder", "createResultsFolder", conf.createResultsFolder );
-  ini.WriteString( "folder", "folderName", conf.folderName );
-    
-  //File
-  ini.WriteBool( "file", "addTimestampToFile", conf.addTimestampToFile );
-  ini.WriteString( "file", "fileName", conf.fileName );
-  ini.WriteInt( "file", "roundingPrecision", conf.roundingPrecision );
-    
-  //Power Flow
-  ini.WriteInt( "power flow", "maxIterations", conf.maxIterations );
-  ini.WriteDouble( "power flow", "startingPrecision", conf.startingPrecision );
-  ini.WriteDouble( "power flow", "precision", conf.precision );
-  ini.WriteDouble( "power flow", "uzGIterationPrecision", conf.uzGIterationPrecision );
+  ini.WriteDouble( "power flow", "uzgIterationPrecision", conf.uzgIterationPrecision );
   ini.WriteInt( "power flow", "method", conf.method );
  
   return conf;
@@ -461,22 +477,21 @@ function iniConfigConstructor( iniPath, fso ){
 //Function gets file and takes each line into a array and after finding whiteline pushes array into other array
 function getInputArray( file ){
 
-  var array = [];
+  var array = []; 
 
   while(!file.AtEndOfStream){
 
-    var tmp = [], line = file.ReadLine();
-      
-    while( line != "" ){
-     
-      tmp.push( line.replace(/(^\s+|\s+$)/g, '') );
+    var tmp = [], line = file.ReadLine(), word = null;
     
-      if( !file.AtEndOfStream ) line = file.ReadLine();
+    tmp = line.split(",");
+
+    for( i in tmp ){
       
-      else break; 
+      word = tmp[ i ].replace(/(^\s+|\s+$)/g, '');
+      
+      if( word != "" ) array.push( word );
     }
-    
-    array.push( tmp );
+
   }
 
   return array;
