@@ -1,16 +1,3 @@
-//TODO list
-/*  
-  
-  X configuraton file with file reading support  
-  
-  X convert input file array to plans objects
-  
-  search function, that searches through generators, transformers and nodes?
-
-  change output files to log change of transformers, generators and nodes
-
-*/
-
 //Location of folder where config file is located
 var homeFolder = "C:\\Users\\lukas\\Documents\\Github\\Plans_GeneratorsVoltageChangeTest_Macro\\files";
 
@@ -23,7 +10,7 @@ var tmpFile = config.homeFolder + "\\tmp.bin", tmpOgFile = config.homeFolder + "
 
 //Loading kdm model file and trying to save it as temporary binary file
 ReadDataKDM( config.modelPath + "\\" + config.modelName + ".kdm" );
-if( SaveTempBIN( tmpOgFile ) < 1 ) errorThrower( "Unable to create temporary file", "Unable to create temporary file, check if you are able to create files in homeFolder location" );
+if( SaveTempBIN( tmpOgFile ) < 1 ) errorThrower( "Unable to create temporary file" );
 
 var time = getTime();
 
@@ -39,11 +26,6 @@ setPowerFlowSettings( config );
 
 //Calculate power flow, if fails throw error 
 CPF();
-
-
-//
-//TODO: convert data from input file to array with objects
-//
 
 //Try to read file from location specified in configuration file, then make array from file and close the file
 var inputFile = readFile( config, fso );
@@ -111,6 +93,8 @@ for( var i = 1; i < Data.N_Gen; i++ ){
    
 }
 
+var b = null;
+
 for( i in nodes ){
 
   var n = nodes[ i ];
@@ -118,17 +102,18 @@ for( i in nodes ){
   for( var j = 1; j < Data.N_Trf; j++ ){
 
     var t = TrfArray.Get( j );
-    var b = BraArray.Find( t.Name );
+    
       
     if( ( n.Name === t.EndName || n.Name === t.BegName ) && !elementInArrayByName( generators, t.Name )  ){
 
-      generators.push( [ t, n ] );
+      b = BraArray.Find( t.Name );
+
+      generators.push( [ t, n, b ] );
       
       baseGenNodesPow.push( n.Vs );
-    
-      cprintf( b.Name + ", end: " + b.Qend + ", beg: " + b.Qbeg );
-        
+      
       if( n.Name === t.EndName ) baseGensReacPow.push( b.Qend );
+      
       else baseGensReacPow.push( b.Qbeg );
       
     }
@@ -167,15 +152,15 @@ for( i in nodes ){
 
 file2.WriteLine( "\n" + temp );
 
-//Trying to save file before changes on transformators and  connected nodes
-if( SaveTempBIN( tmpFile ) < 1 ) errorThrower( "Unable to create temporary file", "Unable to create temporary file, check if you are able to create files in homeFolder location" );
+//Trying to save file before any change on transformers and connected nodes
+if( SaveTempBIN( tmpFile ) < 1 ) errorThrower( "Unable to create temporary file" );
 
 for( i in generators ){
   
   var g = generators[ i ][ 0 ], n = generators[ i ][ 1 ];
   
   //Check if generator has block transformer
-  if( g.TrfName != "" && g.BegName == "" ){
+  if( g.TrfName != "" && !generators[ i ][ 2 ] ){
 
     //Find transformer and change it's type to 11 ( without regulation )
     var t = TrfArray.Find( g.TrfName );
@@ -214,22 +199,26 @@ for( i in generators ){
   n.Vs += value;
 
   //Calculate power flow, if fails try to load original model and throw error 
-  if( CalcLF() != 1 ) saveErrorThrower( "Power Flow calculation failed", -1, tmpOgFile );
+  if( CalcLF() != 1 ) saveErrorThrower( "Power Flow calculation failed", tmpOgFile );
 
   //Write generator's name, it's base connected node power and new connected node power
   file1.Write( g.Name + ";" + roundTo( baseGenNodesPow[ i ], 2 ) + ";" + roundTo( n.Vs, 2 ) + ";" );
 
+  var react = null; 
+  
   //Write for each generator it's new reactive power
   for( j in generators ){
 
-//
-// TODO write transformers reactive power
-//    
+    react = null;
+
+    if( generators[ j ][ 2 ] ){
+
+      react = ( generators[ j ][ 0 ].begName === generators[ j ][ 1 ].Name ) ? generators[ j ][ 2 ].Qbeg : generators[ j ][ 2 ].Qend;
+    } 
+
+    else react = generators[ j ][ 0 ].Qg;
   
-    //var react = ( generators[ j ][ 0 ].begName != "" ) 
-  
-  
-    file1.Write( roundTo( generators[ j ][ 0 ].Qg, 2 ) + ";" );
+    file1.Write( roundTo( react, 2 ) + ";" );
   }
   
   //Add end line character to file
@@ -282,19 +271,20 @@ function setPowerFlowSettings( config ){
 }
 
 //Function adds loading bin file before throwing an error
-function saveErrorThrower( message, error, binPath ){
+function saveErrorThrower( message, binPath ){
 
   try{ ReadTempBIN( binPath ); }
   
   catch( e ){ MsgBox( "Couldn't load original model", 16 ) }
 
-  errorThrower( message, error );
+  errorThrower( message );
 }
 
 //Basic error thrower with error message window
 function errorThrower( message ){
   
   MsgBox( message, 16, "Error" );
+
   throw message;
 }
 
@@ -320,13 +310,9 @@ function stringContainsWord( string, word ){
 
 function elementInArrayByName( array, elementName ){
 
-  var e = null;
-
   for( i in array ){
   
-    e = array[ i ];
-    
-    if(e.Name === elementName) return true;
+    if(array[ i ].Name === elementName) return true;
   }
 
   return false;
