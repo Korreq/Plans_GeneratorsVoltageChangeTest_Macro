@@ -103,32 +103,31 @@ for( i in nodes ){
 
     var t = TrfArray.Get( j );
     
-      
-    if( ( n.Name === t.EndName || n.Name === t.BegName ) && !elementInArrayByName( generators, t.Name )  ){
+    if( ( n.Name == t.EndName || n.Name == t.BegName ) && !elementInArrayByName( generators, t.Name ) && t.Lstp != 1 ){
 
       b = BraArray.Find( t.Name );
 
       generators.push( [ t, n, b ] );
       
-      baseGenNodesPow.push( n.Vs );
+      baseGenNodesPow.push( t.Stp0 );
       
       if( n.Name === t.EndName ) baseGensReacPow.push( b.Qend );
       
       else baseGensReacPow.push( b.Qbeg );
       
     }
-
+    
   }
 
 }
 
 //Create result files and folder with settings from a config file
-var file1 = createFile( "G", config, fso );
-var file2 = createFile( "N", config, fso );
+var file1 = createFile( "Q", config, fso );
+var file2 = createFile( "V", config, fso );
 
 //Write headers and base values for each generator/node to coresponding file 
-file1.Write( "Generator;Old U_G;New U_G;" );
-file2.Write( "Generator;Old U_G;New U_G;" );
+file1.Write( "Elements;Old U_G / Tap;New U_G / Tap;" );
+file2.Write( "Elements;Old U_G / Tap;New U_G / Tap;" );
 
 var temp = "Base;X;X;";
 
@@ -194,15 +193,29 @@ for( i in generators ){
 
   }
 
-  //get set value from config file and add it to node's voltage
-  var value = config.changeValue;
-  n.Vs += value;
+  if( generators[ i ][ 2 ] ){
+   
+    //
+    //TODO: Check tap direction
+    //
+    if( g.Lstp != 1 ) g.Stp0 = ( g.Stp0 >= g.Lstp ) ? g.Stp0 - 1 : g.Stp0 + 1 ; 
+  }
+
+  else{
+
+    //get set value from config file and add it to node's voltage
+    var value = config.changeValue;
+    
+    n.Vs += value;
+  }
 
   //Calculate power flow, if fails try to load original model and throw error 
   if( CalcLF() != 1 ) saveErrorThrower( "Power Flow calculation failed", tmpOgFile );
 
+  if( generators[ i ][ 2 ] ) file1.Write( g.Name + ";" + baseGenNodesPow[ i ] + ";" + g.Stp0 + ";" );
+  
   //Write generator's name, it's base connected node power and new connected node power
-  file1.Write( g.Name + ";" + roundTo( baseGenNodesPow[ i ], 2 ) + ";" + roundTo( n.Vs, 2 ) + ";" );
+  else file1.Write( g.Name + ";" + roundTo( baseGenNodesPow[ i ], 2 ) + ";" + roundTo( n.Vs, 2 ) + ";" );
 
   var react = null; 
   
@@ -224,8 +237,12 @@ for( i in generators ){
   //Add end line character to file
   file1.WriteLine("");
 
+  if( generators[ i ][ 2 ] ) file2.Write( g.Name + ";" + baseGenNodesPow[ i ] + ";" + g.Stp0 + ";" );
+  
   //Write generator's name, it's base connected node power and new connected node power
-  file2.Write( g.Name + ";" + roundTo( baseGenNodesPow[ i ], 2 ) + ";" + roundTo( n.Vs, 2 ) + ";" );
+  else file2.Write( g.Name + ";" + roundTo( baseGenNodesPow[ i ], 2 ) + ";" + roundTo( n.Vs, 2 ) + ";" );
+  
+  
   
   //Write for each node it's new voltage
   for( j in nodes ){
@@ -312,7 +329,7 @@ function elementInArrayByName( array, elementName ){
 
   for( i in array ){
   
-    if(array[ i ].Name === elementName) return true;
+    if(array[ i ][ 0 ].Name === elementName) return true;
   }
 
   return false;
