@@ -34,7 +34,7 @@ inputFile.close();
 
 var contains = null;
 
-//Fill node array with valid nodes and baseNodesVolt array with voltage of that nodes
+//Fill node and baseNodesVolt arrays with nodes that matches names from input file
 for( var i = 1; i < Data.N_Nod; i++ ){
 
   contains = false;
@@ -52,6 +52,8 @@ for( var i = 1; i < Data.N_Nod; i++ ){
 
   }
 
+  //Add node to both array that fulfills all conditions:
+  //matching area, connected, not generator's node, higher voltage setpoint than specified in configure file, node contains one of names from input file
   if( n.Area === area && n.St > 0 && n.Name.charAt( nodeIndex ) != nodeChar && n.Vn >= voltage && contains ){ 
     
     nodes.push( n );
@@ -61,8 +63,8 @@ for( var i = 1; i < Data.N_Nod; i++ ){
 
 }
 
-//Fill generators array with valid generators and it's connected node. 
-//Also fill baseGensReacPow with that generators reactive power and baseGenNodesPow with connected nodes power
+//Fill generators array with valid generators and connected nodes. 
+//Also fills baseGensReacPow with generators reactive power and baseGenNodesPow with connected nodes power
 for( var i = 1; i < Data.N_Gen; i++ ){
 
   contains = false;
@@ -82,7 +84,10 @@ for( var i = 1; i < Data.N_Gen; i++ ){
 
   }
  
-  if( g.Qmin !== g.Qmax && g.St > 0 && n.Area === area && n.Name.charAt( nodeIndex ) == nodeChar && contains ){
+  //Add generator to arrays that fulfills all conditions:
+  //Minimal reactive power is not equal or higher than maximum reactive power, generator is connected to grid, matches area, 
+  //generator's node contains one of names from input file 
+  if( g.Qmin < g.Qmax && g.St > 0 && n.Area === area && n.Name.charAt( nodeIndex ) == nodeChar && contains ){
 
     generators.push( [ g, n ] );
 
@@ -94,7 +99,9 @@ for( var i = 1; i < Data.N_Gen; i++ ){
 }
 
 var b = null;
-
+//
+//Add comments
+//
 for( i in nodes ){
 
   var n = nodes[ i ];
@@ -194,11 +201,10 @@ for( i in generators ){
   }
 
   if( generators[ i ][ 2 ] ){
-   
-    //
-    //TODO: Check tap direction
-    //
-    if( g.Lstp != 1 ) g.Stp0 = ( g.Stp0 >= g.Lstp ) ? g.Stp0 - 1 : g.Stp0 + 1 ; 
+  
+    if( ( g.TapLoc === 1 && g.Stp0 < g.Lstp ) ) g.Stp0++;
+    
+    else if( ( g.TapLoc === 0 && g.Stp0 > 1 ) ) g.Stp0--;  
   }
 
   else{
@@ -311,6 +317,7 @@ function CPF(){
   if( CalcLF() != 1 ) errorThrower( "Power Flow calculation failed" );
 }
 
+//Function checks if word is in a string. Word can only be matched whole
 function stringContainsWord( string, word ){
   
   var j = 0;
@@ -325,6 +332,7 @@ function stringContainsWord( string, word ){
   return false;
 }
 
+//Function gets each element's name from 2D array and compares it to elementName 
 function elementInArrayByName( array, elementName ){
 
   for( i in array ){
