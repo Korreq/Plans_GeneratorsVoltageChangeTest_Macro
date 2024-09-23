@@ -1,6 +1,7 @@
 //
-//TODO skip nodes ending on 55 eg. GBL455, not real nodes
-//
+//TODO: 
+//skip nodes ending on 55 eg. GBL455, not real nodes
+//FIX not finding generators connected to nodes explicy specified in an input file 
 
 //Location of folder where config file is located
 var homeFolder = "C:\\Users\\lukas\\Documents\\Github\\Plans_GeneratorsVoltageChangeTest_Macro\\files";
