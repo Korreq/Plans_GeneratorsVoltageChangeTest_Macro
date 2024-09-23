@@ -1,3 +1,7 @@
+//
+//TODO skip nodes ending on 55 eg. GBL455, not real nodes
+//
+
 //Location of folder where config file is located
 var homeFolder = "C:\\Users\\lukas\\Documents\\Github\\Plans_GeneratorsVoltageChangeTest_Macro\\files";
 
@@ -14,11 +18,11 @@ if( SaveTempBIN( tmpOgFile ) < 1 ) errorThrower( "Unable to create temporary fil
 
 var time = getTime();
 
-var nodes = [], generators = [];
+var nodes = [], elements = [];
 
-var baseGensReacPow = [], baseNodesVolt = [], baseGenNodesPow = [];
+var baseElementsReactPow = [], baseNodesVolt = [], baseElementsNodesPow = [];
 
-//Getting variables values from config file 
+//Getting variables from config file 
 var area = config.areaId, voltage = config.minRatedVoltage, nodeIndex = config.nodeCharIndex, nodeChar = config.nodeChar;
 
 //Setting power flow calculation settings with settings from config file
@@ -27,7 +31,7 @@ setPowerFlowSettings( config );
 //Calculate power flow, if fails throw error 
 CPF();
 
-//Try to read file from location specified in configuration file, then make array from file and close the file
+//Try to read file from location specified in configuration file, then make array from file and close it
 var inputFile = readFile( config, fso );
 var inputArray = getInputArray( inputFile );
 inputFile.close();
@@ -41,6 +45,9 @@ for( var i = 1; i < Data.N_Nod; i++ ){
 
   var n = NodArray.Get( i );
 
+  //Add to config file
+  if( stringContainsWord( n.Name, "55" ) ) continue;
+  
   for( var j in inputArray ){
 
     if( stringContainsWord( n.Name, inputArray[ j ] ) ){
@@ -52,7 +59,7 @@ for( var i = 1; i < Data.N_Nod; i++ ){
 
   }
 
-  //Add node to both array that fulfills all conditions:
+  //Add node to both arrays that fulfills all conditions:
   //matching area, connected, not generator's node, higher voltage setpoint than specified in configure file, node contains one of names from input file
   if( n.Area === area && n.St > 0 && n.Name.charAt( nodeIndex ) != nodeChar && n.Vn >= voltage && contains ){ 
     
@@ -63,8 +70,8 @@ for( var i = 1; i < Data.N_Nod; i++ ){
 
 }
 
-//Fill generators array with valid generators and connected nodes. 
-//Also fills baseGensReacPow with generators reactive power and baseGenNodesPow with connected nodes power
+//Fill elements array with valid generators and connected nodes. 
+//Also fills baseElementsReactPow with generators reactive power and baseElementsNodesPow with connected nodes power
 for( var i = 1; i < Data.N_Gen; i++ ){
 
   contains = false;
@@ -84,24 +91,24 @@ for( var i = 1; i < Data.N_Gen; i++ ){
 
   }
  
-  //Add generator to arrays that fulfills all conditions:
+  //Add valid generators to arrays. Constrains:
   //Minimal reactive power is not equal or higher than maximum reactive power, generator is connected to grid, matches area, 
   //generator's node contains one of names from input file 
   if( g.Qmin < g.Qmax && g.St > 0 && n.Area === area && n.Name.charAt( nodeIndex ) == nodeChar && contains ){
 
-    generators.push( [ g, n ] );
+    elements.push( [ g, n ] );
 
-    baseGensReacPow.push( g.Qg );
+    baseElementsReactPow.push( g.Qg );
 
-    baseGenNodesPow.push( n.Vs );
+    baseElementsNodesPow.push( n.Vs );
   }
    
 }
 
 var b = null;
-//
-//Add comments
-//
+
+//Add valid transformers to arrays with coresponding node and branch. Constrains:
+//Transformer must be connected to node from nodes array, have more than 1 tap, not already been in elements array
 for( i in nodes ){
 
   var n = nodes[ i ];
@@ -110,17 +117,17 @@ for( i in nodes ){
 
     var t = TrfArray.Get( j );
     
-    if( ( n.Name == t.EndName || n.Name == t.BegName ) && !elementInArrayByName( generators, t.Name ) && t.Lstp != 1 ){
+    if( ( n.Name == t.EndName || n.Name == t.BegName ) && !elementInArrayByName( elements, t.Name ) && t.Lstp != 1 ){
 
       b = BraArray.Find( t.Name );
 
-      generators.push( [ t, n, b ] );
+      elements.push( [ t, n, b ] );
       
-      baseGenNodesPow.push( t.Stp0 );
+      baseElementsNodesPow.push( t.Stp0 );
       
-      if( n.Name === t.EndName ) baseGensReacPow.push( b.Qend );
+      if( n.Name === t.EndName ) baseElementsReactPow.push( b.Qend );
       
-      else baseGensReacPow.push( b.Qbeg );
+      else baseElementsReactPow.push( b.Qbeg );
       
     }
     
@@ -132,17 +139,17 @@ for( i in nodes ){
 var file1 = createFile( "Q", config, fso );
 var file2 = createFile( "V", config, fso );
 
-//Write headers and base values for each generator/node to coresponding file 
+//Write headers and base values for each element/node to coresponding file 
 file1.Write( "Elements;Old U_G / Tap;New U_G / Tap;" );
 file2.Write( "Elements;Old U_G / Tap;New U_G / Tap;" );
 
 var temp = "Base;X;X;";
 
-for( i in generators ){
+for( i in elements ){
 
-  file1.Write( generators[ i ][ 0 ].Name + ";" );
+  file1.Write( elements[ i ][ 0 ].Name + ";" );
 
-  temp += roundTo( baseGensReacPow[ i ], 2 ) + ";";
+  temp += roundTo( baseElementsReactPow[ i ], 2 ) + ";";
 }
 
 file1.WriteLine( "\n" + temp );
@@ -161,12 +168,12 @@ file2.WriteLine( "\n" + temp );
 //Trying to save file before any change on transformers and connected nodes
 if( SaveTempBIN( tmpFile ) < 1 ) errorThrower( "Unable to create temporary file" );
 
-for( i in generators ){
+for( i in elements ){
   
-  var g = generators[ i ][ 0 ], n = generators[ i ][ 1 ];
+  var g = elements[ i ][ 0 ], n = elements[ i ][ 1 ];
   
   //Check if generator has block transformer
-  if( g.TrfName != "" && !generators[ i ][ 2 ] ){
+  if( g.TrfName != "" && !elements[ i ][ 2 ] ){
 
     //Find transformer and change it's type to 11 ( without regulation )
     var t = TrfArray.Find( g.TrfName );
@@ -200,7 +207,8 @@ for( i in generators ){
 
   }
 
-  if( generators[ i ][ 2 ] ){
+  //If array element have a branch then try to switch tap up 
+  if( elements[ i ][ 2 ] ){
   
     if( ( g.TapLoc === 1 && g.Stp0 < g.Lstp ) ) g.Stp0++;
     
@@ -218,24 +226,24 @@ for( i in generators ){
   //Calculate power flow, if fails try to load original model and throw error 
   if( CalcLF() != 1 ) saveErrorThrower( "Power Flow calculation failed", tmpOgFile );
 
-  if( generators[ i ][ 2 ] ) file1.Write( g.Name + ";" + baseGenNodesPow[ i ] + ";" + g.Stp0 + ";" );
+  //Write element's name, it's base connected node power / tap number and new connected node power / tap number
+  if( elements[ i ][ 2 ] ) file1.Write( g.Name + ";" + baseElementsNodesPow[ i ] + ";" + g.Stp0 + ";" );
   
-  //Write generator's name, it's base connected node power and new connected node power
-  else file1.Write( g.Name + ";" + roundTo( baseGenNodesPow[ i ], 2 ) + ";" + roundTo( n.Vs, 2 ) + ";" );
+  else file1.Write( g.Name + ";" + roundTo( baseElementsNodesPow[ i ], 2 ) + ";" + roundTo( n.Vs, 2 ) + ";" );
 
   var react = null; 
   
-  //Write for each generator it's new reactive power
-  for( j in generators ){
+  //Write for each element it's new reactive power
+  for( j in elements ){
 
     react = null;
 
-    if( generators[ j ][ 2 ] ){
+    if( elements[ j ][ 2 ] ){
 
-      react = ( generators[ j ][ 0 ].begName === generators[ j ][ 1 ].Name ) ? generators[ j ][ 2 ].Qbeg : generators[ j ][ 2 ].Qend;
+      react = ( elements[ j ][ 0 ].begName === elements[ j ][ 1 ].Name ) ? elements[ j ][ 2 ].Qbeg : elements[ j ][ 2 ].Qend;
     } 
 
-    else react = generators[ j ][ 0 ].Qg;
+    else react = elements[ j ][ 0 ].Qg;
   
     file1.Write( roundTo( react, 2 ) + ";" );
   }
@@ -243,18 +251,13 @@ for( i in generators ){
   //Add end line character to file
   file1.WriteLine("");
 
-  if( generators[ i ][ 2 ] ) file2.Write( g.Name + ";" + baseGenNodesPow[ i ] + ";" + g.Stp0 + ";" );
+  //Write element's name, it's base connected node power / tap number and new connected node power / tap number
+  if( elements[ i ][ 2 ] ) file2.Write( g.Name + ";" + baseElementsNodesPow[ i ] + ";" + g.Stp0 + ";" );
   
-  //Write generator's name, it's base connected node power and new connected node power
-  else file2.Write( g.Name + ";" + roundTo( baseGenNodesPow[ i ], 2 ) + ";" + roundTo( n.Vs, 2 ) + ";" );
-  
-  
+  else file2.Write( g.Name + ";" + roundTo( baseElementsNodesPow[ i ], 2 ) + ";" + roundTo( n.Vs, 2 ) + ";" );
   
   //Write for each node it's new voltage
-  for( j in nodes ){
-
-    file2.Write( roundTo( nodes[ j ].Vi, 2 ) + ";" );
-  }
+  for( j in nodes ) file2.Write( roundTo( nodes[ j ].Vi, 2 ) + ";" );
 
   //Add end line character to file
   file2.WriteLine("");
@@ -293,7 +296,7 @@ function setPowerFlowSettings( config ){
   Calc.Met = config.method;
 }
 
-//Function adds loading bin file before throwing an error
+//Function try to load original file before throwing an error
 function saveErrorThrower( message, binPath ){
 
   try{ ReadTempBIN( binPath ); }
@@ -485,7 +488,7 @@ function iniConfigConstructor( iniPath, fso ){
   return conf;
 }
 
-//Function gets file and takes each line into a array and after finding whiteline pushes array into other array
+//Function gets file and takes each line into a array and after finding "," character pushes array into other array
 function getInputArray( file ){
 
   var array = []; 
