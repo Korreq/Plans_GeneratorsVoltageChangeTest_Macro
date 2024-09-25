@@ -1,8 +1,3 @@
-//
-//TODO: 
-//skip nodes ending on 55 eg. GBL455, not real nodes
-//FIX not finding generators connected to nodes explicy specified in an input file 
-
 //Location of folder where config file is located
 var homeFolder = "C:\\Users\\lukas\\Documents\\Github\\Plans_GeneratorsVoltageChangeTest_Macro\\files";
 
@@ -46,8 +41,7 @@ for( var i = 1; i < Data.N_Nod; i++ ){
 
   var n = NodArray.Get( i );
 
-  //Add to config file
-  if( stringContainsWord( n.Name, "55" ) ) continue;
+  if( config.skipFakeNodes && stringContainsAfter( n.Name, "55", strip( n.Name ).length - 3 ) ) continue;
   
   for( var j in inputArray ){
 
@@ -81,9 +75,20 @@ for( var i = 1; i < Data.N_Gen; i++ ){
 
   var n = NodArray.Get( g.NrNod );
 
+  var searchNode = branch = null;
+  
+  if( g.TrfName ){ 
+  
+    branch = BraArray.Find( g.TrfName );
+    
+    searchNode = ( n.Name === branch.EndName ) ? NodArray.Find( branch.BegName ) : NodArray.Find( branch.EndName );
+  }
+  
+  else searchNode = g;
+  
   for( var j in inputArray ){
 
-    if( stringContainsWord( n.Name, inputArray[ j ] ) ){
+    if( stringContainsWord( searchNode.Name, inputArray[ j ] ) ){
       
       contains = true;
       
@@ -93,9 +98,9 @@ for( var i = 1; i < Data.N_Gen; i++ ){
   }
  
   //Add valid generators to arrays. Constrains:
-  //Minimal reactive power is not equal or higher than maximum reactive power, generator is connected to grid, matches area, 
+  //Minimal reactive power is not equal or higher than maximum reactive power, matches area, 
   //generator's node contains one of names from input file 
-  if( g.Qmin < g.Qmax && g.St > 0 && n.Area === area && n.Name.charAt( nodeIndex ) == nodeChar && contains ){
+  if( g.Qmin < g.Qmax && g.St > 0 && searchNode.Area === area && contains ){
 
     elements.push( [ g, n ] );
 
@@ -321,6 +326,13 @@ function CPF(){
   if( CalcLF() != 1 ) errorThrower( "Power Flow calculation failed" );
 }
 
+function strip( string ){
+
+  var strippedString = string;
+  
+  return strippedString.replace(/(^\s+|\s+$)/g, '');
+}
+
 //Function checks if word is in a string. Word can only be matched whole
 function stringContainsWord( string, word ){
   
@@ -330,6 +342,20 @@ function stringContainsWord( string, word ){
   
     j = ( string.charAt( i ) === word.charAt( j ) ) ? j + 1 : 0;
   
+    if( j === word.length ) return true;
+  }
+  
+  return false;
+}
+
+function stringContainsAfter( string, word, start ){
+
+  var j = 0, cleanString = string.replace(/(^\s+|\s+$)/g, '');
+
+  for( var i = start; i < cleanString.length; i++ ){
+  
+    j = ( cleanString.charAt( i ) === word.charAt( j ) ) ? j + 1 : 0;
+
     if( j === word.length ) return true;
   }
   
@@ -433,6 +459,7 @@ function iniConfigConstructor( iniPath, fso ){
     nodeCharIndex: ini.GetInt( "variable", "nodeCharIndex", 0 ),
     nodeChar: ini.GetString( "variable", "nodeChar", 'Y' ),
     changeValue: ini.GetInt( "variable", "changeValue", 1 ),
+    skipFakeNodes: ini.GetBool( "variable", "skipFakeNodes", 0 ),
 
     //Folder
     createResultsFolder: ini.GetBool( "folder", "createResultsFolder", 0 ),
@@ -466,6 +493,7 @@ function iniConfigConstructor( iniPath, fso ){
   ini.WriteInt( "variable", "nodeCharIndex", conf.nodeCharIndex );
   ini.WriteString( "variable", "nodeChar", conf.nodeChar );
   ini.WriteInt( "variable", "changeValue", conf.changeValue );
+  ini.WriteBool( "variable", "skipFakeNodes", conf.skipFakeNodes );
 
   //Folder
   ini.WriteBool( "folder", "createResultsFolder", conf.createResultsFolder );
